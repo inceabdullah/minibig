@@ -1,0 +1,54 @@
+version: '2.4'
+
+services:
+ nginx:
+  cpus: 0.1
+  mem_limit: 40M
+  mem_swappiness: -1  
+  image: nginx:1.13.7
+  container_name: nginx
+  depends_on:
+   - flask-service
+   - php-service
+  volumes:
+   - ./nginx-docker/nginx.conf:/etc/nginx/conf.d/default.conf
+  networks: 
+   nginx-network:
+   
+  ports:
+   - 80:80
+
+ php-service:
+  cpus: 0.1
+  mem_limit: 100M
+  mem_swappiness: -1
+  build:
+   context: ./php-docker
+   dockerfile: Dockerfile
+  image: php-service
+  container_name: php-service
+  volumes:
+   - ./php-docker/src/:/var/www/html/
+  networks:
+   nginx-network:
+    aliases:
+     - php-service
+
+ mariadb-service:
+  cpus: 0.1
+  mem_limit: 100M
+  mem_swappiness: -1
+  build:
+   context: ./mariadb-docker
+   dockerfile: Dockerfile
+  image: mariadb-service
+  container_name: mariadb-service
+  volumes:
+   - ./mariadb-docker/data/:/var/lib/mysql/
+  networks:
+   nginx-network:
+    aliases:
+     - mariadb-service
+
+networks:
+ nginx-network:
