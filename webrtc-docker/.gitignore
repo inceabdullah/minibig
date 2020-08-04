@@ -1,0 +1,13 @@
+.DS_Store
+node_modules
+commit_images
+
+# keys..
+
+# fake-keys/
+
+# idea
+
+.idea/
+
+package-lock.json

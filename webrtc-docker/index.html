@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>react-native-webrtc server</title>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <script src="http://webrtc.github.io/adapter/adapter-latest.js"></script>
+</head>
+<body>
+<div id="textRoom" style="display: none;">
+  <div id="textRoomContent">
+    <h3>Text Room</h3>
+  </div>
+  <input id="textRoomInput" >
+  <button onclick="textRoomPress();">Send</button>
+</div>
+<video id="selfView" autoplay></video>
+<div id="remoteViewContainer"></div>
+<div id="roomIDContainer">
+  <input id="roomID" value="abc">
+  <button onclick="press();">Join/Create room</button>
+</div>
+</body>
+<script src="/socket.io/socket.io.js"></script>
+<script type="text/javascript">
+var socket = io();
+
+var RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection || window.msRTCPeerConnection;
+var RTCSessionDescription = window.RTCSessionDescription || window.mozRTCSessionDescription || window.webkitRTCSessionDescription || window.msRTCSessionDescription;
+navigator.mediaDevices.getUserMedia = navigator.mediaDevices.getUserMedia || navigator.getUserMedia || navigator.mozGetUserMedia || navigator.webkitGetUserMedia || navigator.msGetUserMedia;
+
+const configuration = {"iceServers": [
+  {url:'stun:stun01.sipphone.com'},
+  {url:'stun:stun.ekiga.net'},
+  {url:'stun:stun.fwdnet.net'},
+  {url:'stun:stun.ideasip.com'},
+  {url:'stun:stun.iptel.org'},
+  {url:'stun:stun.rixtelecom.se'},
+  {url:'stun:stun.schlund.de'},
+  {url:'stun:stun.l.google.com:19302'},
+  {url:'stun:stun1.l.google.com:19302'},
+  {url:'stun:stun2.l.google.com:19302'},
+  {url:'stun:stun3.l.google.com:19302'},
+  {url:'stun:stun4.l.google.com:19302'},
+  {url:'stun:stunserver.org'},
+  {url:'stun:stun.softjoys.com'},
+  {url:'stun:stun.voiparound.com'},
+  {url:'stun:stun.voipbuster.com'},
+  {url:'stun:stun.voipstunt.com'},
+  {url:'stun:stun.voxgratia.org'},
+  {url:'stun:stun.xten.com'},
+  {
+    url: 'turn:numb.viagenie.ca',
+    credential: 'fahrenheit',
+    username: 'chifor.mihai21@gmail.com'
+  },
+  {
+    url: 'turn:192.158.29.39:3478?transport=udp',
+    credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
+    username: '28224511:1379330808'
+  },
+  {
+    url: 'turn:192.158.29.39:3478?transport=tcp',
+    credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
+    username: '28224511:1379330808'
+  }
+]};
+
+var pcPeers = {};
+var selfView = document.getElementById("selfView");
+var remoteViewContainer = document.getElementById("remoteViewContainer");
+var localStream;
+
+function getLocalStream() {
+  navigator.mediaDevices.getUserMedia({ "audio": true, "video": true }).then((stream) => {
+    
+    localStream = stream;
+    selfView.srcObject = stream;
+    selfView.muted = true;
+  
+  });
+}
+
+function join(roomID) {
+  socket.emit('join', roomID, function(socketIds){
+    console.log('join', socketIds);
+    for (var i in socketIds) {
+      var socketId = socketIds[i];
+      createPC(socketId, true);
+    }
+  });
+}
+
+function createPC(socketId, isOffer) {
+  var pc = new RTCPeerConnection(configuration);
+  pcPeers[socketId] = pc;
+
+  pc.onicecandidate = function (event) {
+    console.log('onicecandidate', event);
+    if (event.candidate) {
+      socket.emit('candidate', {'to': socketId, 'candidate': event.candidate });
+    }
+  };
+
+  function createOffer() {
+    pc.createOffer(function(desc) {
+      console.log('createOffer', desc);
+      pc.setLocalDescription(desc, function () {
+        console.log('setLocalDescription', pc.localDescription);
+        socket.emit('offer', {'to': socketId, 'sdp': pc.localDescription });
+      }, logError);
+    }, logError);
+  }
+
+  pc.onnegotiationneeded = function () {
+    console.log('onnegotiationneeded');
+    if (isOffer) {
+      createOffer();
+    }
+  }
+
+  pc.oniceconnectionstatechange = function(event) {
+    console.log('oniceconnectionstatechange', event);
+    if (event.target.iceConnectionState === 'connected') {
+      createDataChannel();
+    }
+  };
+  pc.onsignalingstatechange = function(event) {
+    console.log('onsignalingstatechange', event);
+  };
+
+  pc.onaddstream = function (event) {
+    console.log('onaddstream', event);
+    var element = document.createElement('video');
+    element.id = "remoteView" + socketId;
+    element.autoplay = 'autoplay';
+    element.srcObject = event.stream;
+    remoteViewContainer.appendChild(element);
+  };
+  pc.addStream(localStream);
+  function createDataChannel() {
+    if (pc.textDataChannel) {
+      return;
+    }
+    var dataChannel = pc.createDataChannel("text");
+
+    dataChannel.onerror = function (error) {
+      console.log("dataChannel.onerror", error);
+    };
+
+    dataChannel.onmessage = function (event) {
+      console.log("dataChannel.onmessage:", event.data);
+      var content = document.getElementById('textRoomContent');
+      content.innerHTML = content.innerHTML + '<p>' + socketId + ': ' + event.data + '</p>';
+    };
+
+    dataChannel.onopen = function () {
+      console.log('dataChannel.onopen');
+      var textRoom = document.getElementById('textRoom');
+      textRoom.style.display = "block";
+    };
+
+    dataChannel.onclose = function () {
+      console.log("dataChannel.onclose");
+    };
+
+    pc.textDataChannel = dataChannel;
+  }
+  return pc;
+}
+
+function candidate(data) {
+  const fromId = data.from;
+  var pc;
+  if (fromId in pcPeers) {
+    pc = pcPeers[fromId];
+  } else {
+    pc = createPC(fromId, false);
+  }
+  pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+}
+
+function offer(data) {
+  const fromId = data.from;
+  var pc;
+  if (fromId in pcPeers) {
+    pc = pcPeers[fromId];
+  } else {
+    pc = createPC(fromId, false);
+  }
+  pc.setRemoteDescription(new RTCSessionDescription(data.sdp), function () {
+    pc.createAnswer( function(desc) {
+    pc.setLocalDescription(desc, function () {
+    socket.emit('answer', {'to': fromId, 'sdp': pc.localDescription });
+}, logError);
+}, logError);
+}, logError);
+}
+
+function answer(data) {
+  const fromId = data.from;
+  var pc;
+  if (fromId in pcPeers) {
+    pc = pcPeers[fromId];
+  } else {
+    pc = createPC(fromId, false);
+  }
+  pc.setRemoteDescription(new RTCSessionDescription(data.sdp), function () {
+
+  }, logError);
+}
+
+function leave(socketId) {
+  console.log('leave', socketId);
+  var pc = pcPeers[socketId];
+  pc.close();
+  delete pcPeers[socketId];
+  var video = document.getElementById("remoteView" + socketId);
+  if (video) video.remove();
+}
+
+socket.on('offer', function(data) {
+  offer(data);
+});
+socket.on('answer', function(data) {
+  answer(data);
+});
+socket.on('candidate', function(data) {
+  candidate(data);
+});
+socket.on('leave', function(socketId){
+  leave(socketId);
+});
+
+socket.on('connect', function(data) {
+  console.log('connect');
+  getLocalStream();
+});
+
+function logError(error) {
+  console.log("logError", error);
+}
+
+function press() {
+  var roomID = document.getElementById('roomID').value;
+  if (roomID == "") {
+    alert('Please enter room ID');
+  } else {
+    var roomIDContainer = document.getElementById('roomIDContainer');
+    roomIDContainer.parentElement.removeChild(roomIDContainer);
+    join(roomID);
+  }
+}
+function textRoomPress() {
+  var text = document.getElementById('textRoomInput').value;
+  if (text == "") {
+    alert('Enter something');
+  } else {
+    document.getElementById('textRoomInput').value = '';
+    var content = document.getElementById('textRoomContent');
+    content.innerHTML = content.innerHTML + '<p>' + 'Me' + ': ' + text + '</p>';
+    for (var key in pcPeers) {
+      var pc = pcPeers[key];
+      pc.textDataChannel.send(text);
+    }
+  }
+}
+
+</script>
+
+</html>

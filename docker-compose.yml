@@ -1,0 +1,39 @@
+version: '2.4'
+
+services:
+ nginx:
+  cpus: 0.1
+  mem_limit: 40M
+  mem_swappiness: -1
+  image: nginx:1.13.7
+  container_name: nginx
+  depends_on:
+   - webrtc-service
+  volumes:
+   - ./nginx-docker/nginx.conf:/etc/nginx/conf.d/default.conf
+  networks:
+   nginx-network:
+
+  ports:
+   - 80:80
+
+ webrtc-service:
+  cpus: 0.1
+  mem_limit: 100M
+  mem_swappiness: -1
+  build:
+   context: ./webrtc-docker
+   dockerfile: Dockerfile
+  command: node app 
+  image: webrtc-image
+  container_name: webrtc-service
+  volumes:
+   - ./webrtc-docker:/usr/app
+  networks:
+   nginx-network:
+    aliases:
+     - webrtc-service
+
+
+networks:
+ nginx-network:
